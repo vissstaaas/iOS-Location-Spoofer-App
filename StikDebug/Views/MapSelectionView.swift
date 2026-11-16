@@ -985,7 +985,7 @@ struct LocationSimulationView: View {
     private func handleWebLocationInjection(lat: Double, lng: Double, alt: Double?, jitter: Bool) {
         let coord = CLLocationCoordinate2D(latitude: lat, longitude: lng)
         coordinate = coord
-        Haptics.impact(.medium)
+        Haptics.medium()
 
         let code = locationUpdateCode(for: coord)
         if code == 0 {
