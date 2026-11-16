@@ -884,12 +884,7 @@ struct LocationSimulationView: View {
 
     @ViewBuilder
     private var searchResultsList: some View {
-        if #available(iOS 26, *) {
-            searchResultsListBase
-                .glassEffect(in: .rect(cornerRadius: 12))
-        } else {
-            searchResultsListBase
-        }
+        searchResultsListBase
     }
 
     var body: some View {
