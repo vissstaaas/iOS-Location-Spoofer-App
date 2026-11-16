@@ -29,6 +29,9 @@ jobs:
         with:
           xcode-version: '16.2'
 
+      - name: 2.1 Download iOS Platform Runtime
+        run: sudo xcodebuild -downloadPlatform iOS
+
       - name: 3. Compile Project Archive
         run: |
           xcodebuild clean archive \
