@@ -733,6 +733,9 @@ struct LocationSimulationView: View {
     }
     @ObservedObject private var simulationSession = LocationSimulationSession.shared
     @ObservedObject private var webSyncService = WebSpooferSyncService.shared
+    @AppStorage("useLiquidGlassWebMap") private var useLiquidGlassWebMap = true
+    @State private var webReloadTrigger = false
+    @State private var webInjectionToast: String?
     @State private var showWebSpoofer = false
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
@@ -888,6 +891,120 @@ struct LocationSimulationView: View {
     }
 
     var body: some View {
+        if useLiquidGlassWebMap {
+            liquidGlassBody
+        } else {
+            classicMapView
+        }
+    }
+
+    private var liquidGlassBody: some View {
+        ZStack(alignment: .top) {
+            LiquidGlassWebMapView(
+                targetURL: webSyncService.resolveEndpoints()?.panelURL,
+                reloadTrigger: $webReloadTrigger
+            ) { lat, lng, alt, jitter in
+                handleWebLocationInjection(lat: lat, lng: lng, alt: alt, jitter: jitter)
+            }
+            .ignoresSafeArea(edges: .bottom)
+
+            VStack(spacing: 8) {
+                if let toast = webInjectionToast {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(toast)
+                            .font(.caption.weight(.semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                } else if !isDeviceConnected && (tunnel.lastError != nil || connectionErrorMessage != nil) {
+                    DeviceConnectionStatusView(errorMessage: connectionErrorMessage)
+                        .padding(10)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
+                }
+            }
+            .padding(.top, 8)
+            .animation(.easeInOut, value: webInjectionToast)
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    useLiquidGlassWebMap = false
+                } label: {
+                    Label("Classic Map", systemImage: "map")
+                }
+            }
+
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    clear()
+                    webInjectionToast = "Location cleared"
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        webInjectionToast = nil
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .tint(.red)
+                .accessibilityLabel("Clear Simulated Location")
+
+                Button {
+                    webReloadTrigger.toggle()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+
+                Button {
+                    showWebSpoofer = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+            }
+        }
+        .sheet(isPresented: $showWebSpoofer) {
+            NavigationStack {
+                WebSpooferView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") {
+                                showWebSpoofer = false
+                            }
+                        }
+                    }
+            }
+        }
+    }
+
+    private func handleWebLocationInjection(lat: Double, lng: Double, alt: Double?, jitter: Bool) {
+        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        coordinate = coord
+        Haptics.impact(.medium)
+
+        let code = locationUpdateCode(for: coord)
+        if code == 0 {
+            beginBackgroundTask()
+            LocationSimulationSession.shared.clearRoute()
+            startResendLoop(with: coord)
+            webInjectionToast = String(format: "已锁定并注入: %.5f, %.5f%@", lat, lng, jitter ? " (微漂移已生效)" : "")
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                webInjectionToast = nil
+            }
+        } else {
+            alertTitle = "Simulation Failed"
+            alertMessage = "Could not simulate location (error \(code)). Ensure LocalDevVPN is connected to 10.7.0.1."
+            showAlert = true
+        }
+    }
+
+    private var classicMapView: some View {
         ZStack(alignment: .bottom) {
             MapReader { proxy in
                 Map(position: $position) {
@@ -1026,6 +1143,13 @@ struct LocationSimulationView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarLeading) {
+                Button {
+                    useLiquidGlassWebMap = true
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .accessibilityLabel("Switch to Liquid Glass Web Map")
+
                 Button {
                     showWebSpoofer = true
                 } label: {
